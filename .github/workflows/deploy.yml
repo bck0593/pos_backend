@@ -1,4 +1,4 @@
-name: Deploy Backend to Azure Web App
+﻿name: Deploy Backend to Azure Web App
 
 on:
   push:
@@ -18,24 +18,19 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
-            echo '== requirements.txt ==';
+            echo "== requirements.txt ==";
             sed -n '1,200p' requirements.txt;
-            echo '== end requirements.txt ==';
+            echo "== end requirements.txt ==";
             pip install --no-cache-dir -r requirements.txt;
           else
-            echo 'no requirements.txt, skipping pip install';
+            echo "no requirements.txt, skipping";
           fi
-
-      # Optional: add unit tests here if available
-
-      - name: Ensure certs directory
-        run: mkdir -p certs
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
