@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-sqlalchemy
-pydantic
-pymysql
-python-dotenv
+fastapi==0.99.0
+uvicorn[standard]==0.22.0
+SQLAlchemy==1.4.49
+pydantic==1.10.12
+PyMySQL==1.0.3
+python-dotenv==1.0.0
