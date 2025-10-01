@@ -1,0 +1,8 @@
+@"
+fastapi
+uvicorn
+SQLAlchemy
+pydantic
+pymysql
+python-dotenv
+"@ | Out-File -Encoding UTF8 requirements.txt
