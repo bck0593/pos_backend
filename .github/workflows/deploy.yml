@@ -20,22 +20,21 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install deps (backend/requirements.txt)
+      - name: Install deps (requirements.txt in repo root)
         run: |
           python -m pip install --upgrade pip
-          if [ -f backend/requirements.txt ]; then
-            echo "== backend/requirements.txt =="
-            sed -n '1,200p' backend/requirements.txt
-            echo "== end backend/requirements.txt =="
-            pip install --no-cache-dir -r backend/requirements.txt
+          if [ -f requirements.txt ]; then
+            echo "== requirements.txt =="
+            sed -n '1,200p' requirements.txt
+            echo "== end requirements.txt =="
+            pip install --no-cache-dir -r requirements.txt
           else
-            echo "no backend/requirements.txt, skipping"
+            echo "no requirements.txt, skipping"
           fi
 
-      - name: Create deployment package (zip backend only)
+      - name: Create deployment package (zip current directory)
         run: |
-          cd backend
-          zip -r ../backend.zip .
+          zip -r backend.zip .
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
