@@ -2,8 +2,14 @@
 starlette==0.48.0
 uvicorn[standard]==0.37.0
 gunicorn==23.0.0
+
+# DB関連
+sqlalchemy==2.0.36
 pymysql==1.0.3
+
+# 環境変数
 python-dotenv==1.0.0
+
+# 高速化ライブラリ
 httptools==0.6.4
 uvloop==0.21.0
-
