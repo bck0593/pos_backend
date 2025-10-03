@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AZURE_WEBAPP_NAME: app-002-gen10-step3-1-py-oshima29
+      SCM_DO_BUILD_DURING_DEPLOYMENT: true  # Azureにrequirements.txtインストールさせる
 
     steps:
       - name: Checkout
@@ -20,21 +21,23 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install deps (requirements.txt in repo root)
+      - name: Install deps (for lint/test only)
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            echo "== requirements.txt =="
-            sed -n '1,200p' requirements.txt
-            echo "== end requirements.txt =="
-            pip install --no-cache-dir -r requirements.txt
+          if [ -f backend/requirements.txt ]; then
+            pip install --no-cache-dir -r backend/requirements.txt
           else
-            echo "no requirements.txt, skipping"
+            echo "no backend/requirements.txt, skipping"
           fi
 
-      - name: Create deployment package (zip current directory)
+      # 🔹 backend ディレクトリだけ zip
+      - name: Create deployment package (backend only)
         run: |
-          zip -r backend.zip .
+          cd backend
+          zip -r ../backend.zip .
+
+      - name: Wait for Azure readiness
+        run: sleep 30   # 再起動との衝突を回避
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
