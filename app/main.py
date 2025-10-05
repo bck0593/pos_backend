@@ -1,92 +1,27 @@
-# app/main.py
-import os
-from fastapi import FastAPI, Depends, HTTPException
+﻿import os
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Dict, List
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
-from sqlalchemy.orm import Session, relationship
-from sqlalchemy import Column, Integer, String, Numeric, ForeignKey, DateTime, func
-from decimal import Decimal
-from typing import List
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from .database import Base, engine, get_db
+from .models import Product, Trade, TradeDetail
+from .schemas import ProductEnvelope, PurchaseRequest, PurchaseResponse
 
-# ─────────────────────────────────────────────────────────────
-# モデル（DBテーブル定義）
-# ─────────────────────────────────────────────────────────────
-class Product(Base):
-    __tablename__ = "products"
-    id = Column(Integer, primary_key=True)
-    code = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    unit_price = Column(Numeric(10, 2), nullable=False)  # 学習用にNumeric、計算はfloat寄せ
+TAX_CODE = "10"
+TAX_DIVISOR = Decimal("1.10")
 
-class Transaction(Base):
-    __tablename__ = "transactions"
-    id = Column(Integer, primary_key=True)
-    # PDF Lv1 準拠の列（既定値付き）
-    datetime = Column(DateTime, nullable=False, server_default=func.now())
-    emp_cd   = Column(String(10), nullable=False, server_default="9999999999")
-    store_cd = Column(String(5),  nullable=False, server_default="30")
-    pos_no   = Column(String(3),  nullable=False, server_default="90")
+app = FastAPI(title="POS Lv2 API", version="1.0.0")
 
-    total_amount = Column(Numeric(10, 2), nullable=False)
-    items = relationship(
-        "TransactionItem",
-        back_populates="transaction",
-        cascade="all, delete-orphan"
-    )
-
-class TransactionItem(Base):
-    __tablename__ = "transaction_items"
-    id = Column(Integer, primary_key=True)
-    transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False)
-    product_code = Column(String(50), nullable=False)
-    product_name = Column(String(255), nullable=False)
-    unit_price = Column(Numeric(10, 2), nullable=False)
-    quantity = Column(Integer, nullable=False)
-    transaction = relationship("Transaction", back_populates="items")
-
-# ─────────────────────────────────────────────────────────────
-# スキーマ（Pydantic）
-# ─────────────────────────────────────────────────────────────
-from pydantic import BaseModel, Field
-
-class ProductOut(BaseModel):
-    code: str
-    name: str
-    unit_price: float
-
-class PurchaseItem(BaseModel):
-    product_code: str = Field(min_length=1)
-    quantity: int = Field(ge=1)
-
-class PurchaseRequest(BaseModel):
-    # PDFに合わせた追加パラメータ（未指定時は既定値を使用）
-    emp_cd: str | None = None
-    store_cd: str | None = None
-    pos_no: str | None = None
-    items: List[PurchaseItem]
-
-class PurchaseResponse(BaseModel):
-    success: bool
-    transaction_id: int
-    total_amount: float
-
-# ─────────────────────────────────────────────────────────────
-# アプリ本体
-# ─────────────────────────────────────────────────────────────
-app = FastAPI(title="POS Lv1 API", version="1.0.0")
-
-# 環境変数から許可オリジンを取得（未設定なら dev 用に localhost:3000）
-# 許可オリジン（カンマ区切り）と、任意の正規表現を環境変数から読む
 allowed_origins_env = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000")
-allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
-allowed_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX")  # 例: ^https://.*\.azurewebsites\.net$
+allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,          # 具体URLを列挙
-    allow_origin_regex=allowed_origin_regex,# 任意：azurewebsites.net 配下包括許可
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,92 +29,106 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-def on_startup():
-    # テーブル作成
+def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
-    # 初回シード
-    with next(get_db()) as db:
-        if db.query(Product).count() == 0:
-            db.add_all([
-                Product(code="4900001", name="Mineral Water 500ml", unit_price=Decimal("100.00")),
-                Product(code="4900002", name="Potato Chips",        unit_price=Decimal("150.00")),
-                Product(code="4900003", name="Chocolate Bar",       unit_price=Decimal("120.00")),
-            ])
-            db.commit()
+    with Session(engine) as session:
+        has_products = session.scalar(select(Product).limit(1)) is not None
+        if not has_products:
+            session.add_all(
+                [
+                    Product(code="4900000000001", name="サンプルドリンク", price=150),
+                    Product(code="4900000000002", name="サンプルスナック", price=210),
+                    Product(code="4900000000003", name="サンプルキャンディ", price=120),
+                    Product(code="4969757165713",name="おえかきちょう",price=110),
+                ]
+            )
+            session.commit()
 
-@app.get("/")
-def root():
-    # 開発しやすいよう /docs へ誘導
-    return RedirectResponse("/docs")
 
 @app.get("/health")
-def health():
+def health() -> dict[str, str]:
     return {"status": "ok"}
 
-@app.get("/products", response_model=ProductOut | None)
-def get_product(code: str, db: Session = Depends(get_db)):
-    p = db.query(Product).filter(Product.code == code).first()
-    if not p:
-        return None
-    return {"code": p.code, "name": p.name, "unit_price": float(p.unit_price)}
 
-# ─────────────────────────────────────────────────────────────
-# 購入API（PDF Lv1 準拠・堅牢版）
-# ─────────────────────────────────────────────────────────────
+@app.get("/products", response_model=ProductEnvelope)
+def get_product(code: str, db: Session = Depends(get_db)) -> ProductEnvelope:
+    product = db.scalar(select(Product).where(Product.code == code))
+    if not product:
+        return {"product": None}
+    return {
+        "product": {
+            "code": product.code,
+            "name": product.name,
+            "price": product.price,
+        }
+    }
+
+
 @app.post("/purchase", response_model=PurchaseResponse)
-def purchase(req: PurchaseRequest, db: Session = Depends(get_db)):
-    # 0) バリデーション
+def purchase(req: PurchaseRequest, db: Session = Depends(get_db)) -> PurchaseResponse:
     if not req.items:
         raise HTTPException(status_code=400, detail="items must not be empty")
 
-    try:
-        # 1) 取引ヘッダ 仮登録（PDFの既定値を適用。指定があれば上書き）
-        tx = Transaction(
-            total_amount=Decimal("0.00"),
-            emp_cd=(req.emp_cd or "9999999999"),
-            store_cd=(req.store_cd or "30"),
-            pos_no=(req.pos_no or "90"),
-        )
-        db.add(tx)
-        db.flush()  # tx.id を確保
+    codes = {item.product_code for item in req.items}
+    products: Dict[str, Product] = {
+        product.code: product
+        for product in db.scalars(select(Product).where(Product.code.in_(codes)))
+    }
 
-        # 合計は float で計算して安定化（Numericでも受け入れられる）
-        total = 0.0
+    line_entries: List[tuple[Product, int]] = []
+    total_in_tax = 0
+    for item in req.items:
+        product = products.get(item.product_code)
+        if product is None:
+            raise HTTPException(status_code=400, detail=f"Unknown product_code: {item.product_code}")
+        if item.quantity < 1:
+            raise HTTPException(status_code=400, detail="quantity must be >= 1")
+        line_total = product.price * item.quantity
+        total_in_tax += line_total
+        line_entries.append((product, item.quantity))
 
-        # 2) 明細登録＋合計計算
-        for it in req.items:
-            if it.quantity < 1:
-                raise HTTPException(status_code=400, detail="quantity must be >= 1")
+    if total_in_tax <= 0:
+        raise HTTPException(status_code=400, detail="total amount must be positive")
 
-            p = db.query(Product).filter(Product.code == it.product_code).first()
-            if not p:
-                raise HTTPException(status_code=400, detail=f"Unknown product_code: {it.product_code}")
+    total_ex_tax = int(
+        (Decimal(total_in_tax) / TAX_DIVISOR).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
 
-            unit_price = float(p.unit_price)
-            line_total = unit_price * it.quantity
-            total += line_total
+    trade = Trade(
+        emp_cd=req.emp_cd,
+        store_cd=req.store_cd,
+        pos_no=req.pos_no,
+        total_amt=total_in_tax,
+        ttl_amt_ex_tax=total_ex_tax,
+    )
+    db.add(trade)
+    db.flush()
 
-            db.add(TransactionItem(
-                transaction_id=tx.id,
-                product_code=p.code,
-                product_name=p.name,
-                unit_price=unit_price,
-                quantity=it.quantity
-            ))
+    detail_id = 1
+    for product, quantity in line_entries:
+        for _ in range(quantity):
+            db.add(
+                TradeDetail(
+                    trd_id=trade.trd_id,
+                    dtl_id=detail_id,
+                    prd_id=product.prd_id,
+                    prd_code=product.code,
+                    prd_name=product.name,
+                    prd_price=product.price,
+                    tax_cd=TAX_CODE,
+                )
+            )
+            detail_id += 1
 
-        # 3) 合計をヘッダに反映
-        tx.total_amount = float(total)
+    db.commit()
+    db.refresh(trade)
 
-        # 4) コミット
-        db.commit()
-        db.refresh(tx)
-
-        # 5) 成功レスポンス（PDFの「成否(True/False), 合計金額」に合わせ success を追加）
-        return {"success": True, "transaction_id": tx.id, "total_amount": float(tx.total_amount)}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        # 開発中は内容を返す（本番はログのみ推奨）
-        raise HTTPException(status_code=500, detail=f"purchase failed: {e}")
+    return PurchaseResponse(
+        success=True,
+        transaction_id=int(trade.trd_id),
+        total_amount=trade.total_amt,
+        total_amount_ex_tax=trade.ttl_amt_ex_tax,
+        tax_cd=TAX_CODE,
+        total_in_tax=trade.total_amt,
+        total_ex_tax=trade.ttl_amt_ex_tax,
+    )

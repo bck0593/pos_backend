@@ -1,43 +1,42 @@
-import os
+﻿import os
+from pathlib import Path
+from typing import Any
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = int(os.getenv("DB_PORT", "3306"))
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_SSL_CA = os.getenv("DB_SSL_CA")
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DB_URL")
 
-DATABASE_URL = None
-connect_args: dict = {}
+connect_args: dict[str, Any] = {}
 
-if DB_HOST and DB_USER and DB_PASSWORD and DB_NAME:
-    DATABASE_URL = (
-        f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-        "?charset=utf8mb4"
-    )
-    if DB_SSL_CA:
-        connect_args["ssl"] = {"ca": DB_SSL_CA}
-
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args=connect_args,
-        pool_pre_ping=True,
-        pool_recycle=1800,
-        pool_size=5,
-        max_overflow=10,
-    )
+if DATABASE_URL:
+    url = DATABASE_URL
+    if url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
 else:
-    # Fallback for local development when MySQL credentials are not provided.
-    DATABASE_URL = "sqlite:///./pos.db"
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-    )
+    db_host = os.getenv("DB_HOST")
+    if db_host:
+        db_port = os.getenv("DB_PORT", "3306")
+        db_user = os.getenv("DB_USER", "root")
+        db_password = os.getenv("DB_PASSWORD", "")
+        db_name = os.getenv("DB_NAME", "posdb")
+        url = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
+        db_ssl_ca = os.getenv("DB_SSL_CA")
+        if db_ssl_ca:
+            connect_args["ssl"] = {"ca": db_ssl_ca}
+    else:
+        sqlite_path = os.getenv("SQLITE_PATH", "pos.sqlite3")
+        absolute_sqlite_path = Path(sqlite_path).expanduser().resolve()
+        absolute_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        url = f"sqlite+pysqlite:///{absolute_sqlite_path}"
+        connect_args["check_same_thread"] = False
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 def get_db():

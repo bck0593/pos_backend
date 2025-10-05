@@ -1,15 +1,10 @@
-﻿fastapi==0.118.0
+fastapi==0.118.0
 starlette==0.48.0
-uvicorn[standard]==0.37.0
+uvicorn==0.37.0
 gunicorn==23.0.0
-
-# DB関連
-sqlalchemy==2.0.36
-pymysql==1.0.3
-
-# 環境変数
+SQLAlchemy==2.0.36
+PyMySQL==1.0.3
 python-dotenv==1.0.0
-
-# 高速化ライブラリ
-httptools==0.6.4
-uvloop==0.21.0
+# Speed libs (skip on Windows)
+httptools==0.6.4 ; platform_system != "Windows"
+uvloop==0.21.0 ; platform_system != "Windows"
