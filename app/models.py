@@ -1,60 +1,48 @@
-﻿from typing import List, Optional
+﻿from datetime import datetime
+from uuid import uuid4
 
-from sqlalchemy import (
-    CHAR,
-    TIMESTAMP,
-    CheckConstraint,
-    ForeignKey,
-    Integer,
-    String,
-    UniqueConstraint,
-    func,
-)
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 
 
-class Product(Base):
-    __tablename__ = "product"
+class Item(Base):
+    __tablename__ = "items"
 
-    prd_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    code: Mapped[str] = mapped_column(String(25), nullable=False, unique=True, index=True)
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
-    price: Mapped[int] = mapped_column(Integer, nullable=False)
+    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("code", name="uq_product_code"),
-        CheckConstraint("length(code) > 0", name="ck_product_code_non_empty"),
+
+class Sale(Base):
+    __tablename__ = "sales"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    tax_out: Mapped[int] = mapped_column(Integer, nullable=False)
+    tax: Mapped[int] = mapped_column(Integer, nullable=False)
+    tax_in: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    device_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cashier_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    lines: Mapped[list["SaleLine"]] = relationship(
+        back_populates="sale",
+        cascade="all, delete-orphan",
+        order_by="SaleLine.id",
     )
 
 
-class Trade(Base):
-    __tablename__ = "trade"
+class SaleLine(Base):
+    __tablename__ = "sale_lines"
 
-    trd_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    datetime: Mapped[str] = mapped_column(TIMESTAMP, server_default=func.now())
-    emp_cd: Mapped[str] = mapped_column(CHAR(10), nullable=False)
-    store_cd: Mapped[str] = mapped_column(CHAR(5), nullable=False)
-    pos_no: Mapped[str] = mapped_column(CHAR(3), nullable=False)
-    total_amt: Mapped[int] = mapped_column(Integer, nullable=False)
-    ttl_amt_ex_tax: Mapped[int] = mapped_column(Integer, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sale_id: Mapped[str] = mapped_column(String(36), ForeignKey("sales.id", ondelete="CASCADE"))
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
+    qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_total: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    details: Mapped[List["TradeDetail"]] = relationship(
-        back_populates="trade", cascade="all, delete-orphan"
-    )
-
-
-class TradeDetail(Base):
-    __tablename__ = "trade_detail"
-
-    trd_id: Mapped[int] = mapped_column(Integer, ForeignKey("trade.trd_id"), primary_key=True)
-    dtl_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    prd_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("product.prd_id"), nullable=True)
-    prd_code: Mapped[str] = mapped_column(CHAR(13))
-    prd_name: Mapped[str] = mapped_column(String(50))
-    prd_price: Mapped[int] = mapped_column(Integer)
-    tax_cd: Mapped[str] = mapped_column(CHAR(2))
-
-    trade: Mapped["Trade"] = relationship(back_populates="details")
-    product: Mapped[Optional["Product"]] = relationship()
+    sale: Mapped[Sale] = relationship(back_populates="lines")

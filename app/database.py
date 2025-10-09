@@ -1,45 +1,30 @@
 ﻿import os
 from pathlib import Path
-from typing import Any
+from typing import Iterator
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DB_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+pysqlite:///./posapp.db")
+url = make_url(DATABASE_URL)
 
-connect_args: dict[str, Any] = {}
+connect_args: dict[str, object] = {}
+if url.drivername.startswith("sqlite"):
+    database_path = Path(url.database or "./posapp.db").expanduser().resolve()
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    connect_args["check_same_thread"] = False
+    url = url.set(database=str(database_path))
 
-if DATABASE_URL:
-    url = DATABASE_URL
-    if url.startswith("sqlite"):
-        connect_args["check_same_thread"] = False
-else:
-    db_host = os.getenv("DB_HOST")
-    if db_host:
-        db_port = os.getenv("DB_PORT", "3306")
-        db_user = os.getenv("DB_USER", "root")
-        db_password = os.getenv("DB_PASSWORD", "")
-        db_name = os.getenv("DB_NAME", "posdb")
-        url = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
-        db_ssl_ca = os.getenv("DB_SSL_CA")
-        if db_ssl_ca:
-            connect_args["ssl"] = {"ca": db_ssl_ca}
-    else:
-        sqlite_path = os.getenv("SQLITE_PATH", "pos.sqlite3")
-        absolute_sqlite_path = Path(sqlite_path).expanduser().resolve()
-        absolute_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-        url = f"sqlite+pysqlite:///{absolute_sqlite_path}"
-        connect_args["check_same_thread"] = False
-
-engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+engine = create_engine(url, echo=False, future=True, connect_args=connect_args)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
 class Base(DeclarativeBase):
     pass
 
 
-def get_db():
+def get_db() -> Iterator[Session]:
     db = SessionLocal()
     try:
         yield db
