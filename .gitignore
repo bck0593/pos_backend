@@ -1,7 +1,10 @@
-﻿.venv/
+.venv/
 venv/
 pos.db
 *.sqlite
 __pycache__/
 *.pyc
 certs/
+.env
+posapp.db
+*.sqlite3
