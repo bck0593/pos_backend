@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -17,6 +17,7 @@ class Item(Base):
 
 class Sale(Base):
     __tablename__ = "sales"
+    __table_args__ = (Index("ix_sales_created_at", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -36,8 +37,9 @@ class Sale(Base):
 
 class SaleLine(Base):
     __tablename__ = "sale_lines"
+    __table_args__ = (Index("ix_sale_lines_sale_id", "sale_id"),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     sale_id: Mapped[str] = mapped_column(String(36), ForeignKey("sales.id", ondelete="CASCADE"))
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -1,11 +1,9 @@
-﻿fastapi==0.118.0
-starlette==0.48.0
-uvicorn==0.37.0
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
 gunicorn==23.0.0
+pydantic==2.9.2
 SQLAlchemy==2.0.36
 PyMySQL==1.0.3
 python-dotenv==1.0.1
 python-jose[cryptography]==3.3.0
-# Speed libs (skip on Windows)
-httptools==0.6.4 ; platform_system != "Windows"
-uvloop==0.21.0 ; platform_system != "Windows"
+pytest==8.3.3

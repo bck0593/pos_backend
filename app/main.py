@@ -2,7 +2,7 @@
 import logging
 import os
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from hmac import compare_digest
 from typing import Dict, Iterable
 
@@ -30,6 +30,8 @@ from .schemas import (
     TokenOut,
 )
 from .seed_items import seed_items
+
+UTC = timezone.utc
 
 load_dotenv()
 
@@ -295,50 +297,66 @@ def create_sale(
 
     tax_out_calc = 0
     sale_lines: list[SaleLine] = []
-    codes = {line.code for line in sale_in.lines}
-    items_by_code = {
-        item.code: item for item in db.scalars(select(Item).where(Item.code.in_(codes)))
-    }
-
-    for line in sale_in.lines:
-        item = items_by_code.get(line.code)
-        if item is None:
-            if not ALLOW_CUSTOM_ITEMS:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Code {line.code} is not registered")
-        else:
-            if item.name != line.name or item.unit_price != line.unit_price:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Line for {line.code} does not match master data")
-        line_total = line.unit_price * line.qty
-        tax_out_calc += line_total
-        sale_lines.append(
-            SaleLine(
-                code=line.code,
-                name=line.name,
-                unit_price=line.unit_price,
-                qty=line.qty,
-                line_total=line_total,
-            )
-        )
-
-    tax_calc = round(tax_out_calc * 0.1)
-    tax_in_calc = tax_out_calc + tax_calc
-
-    if sale_in.tax_out != tax_out_calc or sale_in.tax != tax_calc or sale_in.tax_in != tax_in_calc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Totals do not match server calculation")
-
     actor = payload.get("sub", "unknown")
-    sale = Sale(
-        tax_out=tax_out_calc,
-        tax=tax_calc,
-        tax_in=tax_in_calc,
-        device_id=mask_identifier(sale_in.device_id),
-        cashier_id=mask_identifier(sale_in.cashier_id),
-        created_by=actor,
-    )
-    sale.lines.extend(sale_lines)
+    sale: Sale | None = None
 
-    db.add(sale)
-    db.commit()
+    with db.begin():
+        codes = {line.code for line in sale_in.lines}
+        items_by_code = {
+            item.code: item for item in db.scalars(select(Item).where(Item.code.in_(codes)))
+        }
+
+        for line in sale_in.lines:
+            item = items_by_code.get(line.code)
+            if item is None:
+                if not ALLOW_CUSTOM_ITEMS:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Code {line.code} is not registered",
+                    )
+            else:
+                if item.name != line.name or item.unit_price != line.unit_price:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Line for {line.code} does not match master data",
+                    )
+            line_total = line.unit_price * line.qty
+            tax_out_calc += line_total
+            sale_lines.append(
+                SaleLine(
+                    code=line.code,
+                    name=line.name,
+                    unit_price=line.unit_price,
+                    qty=line.qty,
+                    line_total=line_total,
+                )
+            )
+
+        tax_calc = round(tax_out_calc * 0.1)
+        tax_in_calc = tax_out_calc + tax_calc
+
+        if (
+            sale_in.tax_out != tax_out_calc
+            or sale_in.tax != tax_calc
+            or sale_in.tax_in != tax_in_calc
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Totals do not match server calculation",
+            )
+
+        sale = Sale(
+            tax_out=tax_out_calc,
+            tax=tax_calc,
+            tax_in=tax_in_calc,
+            device_id=mask_identifier(sale_in.device_id),
+            cashier_id=mask_identifier(sale_in.cashier_id),
+            created_by=actor,
+        )
+        sale.lines.extend(sale_lines)
+        db.add(sale)
+
+    assert sale is not None
     db.refresh(sale)
 
     logger.info(
