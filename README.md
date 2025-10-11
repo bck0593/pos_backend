@@ -1,30 +1,35 @@
-﻿# POS Lv3 Backend
+# POS Lv3 Backend
 
-FastAPI implementation of the Level 3 POS API with layered JWT authentication (access + refresh), rate limiting, and hardened defaults.
+FastAPI implementation of the Tech0 Step4 POS Lv3 specification. The service exposes a very small surface area focused on:
+
+- 商品マスタ検索 `GET /api/products/{code}`
+- 取引登録 `POST /api/purchase`
+- ヘルスチェック `GET /healthz`
+
+The database schema follows the spec:
+
+- `products` … マスタ（`code`, `name`, `unit_price`）
+- `transactions` … `ttl_amt_ex_tax`, `tax_amt`, `total_amt`, `clerk_cd`, `store_cd`, `pos_id`
+- `transaction_details` … 明細。`tax_cd` は常に `'10'`
 
 ## Prerequisites
 
 - Python 3.11+
-- (Optional) virtual environment
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env  # adjust values before running
+cp .env .env.local  # or adjust the provided .env file
 ```
 
-Key environment variables:
+Environment variables (`backend/.env` already contains sensible defaults):
 
-- `DATABASE_URL` — defaults to SQLite (switchable to MySQL/Postgres)
-- `CORS_ORIGINS` — comma-separated list of allowed frontend origins (no wildcard)
-- `JWT_SECRET`, `JWT_ALGORITHM` — token signing configuration
-- `ACCESS_TOKEN_EXPIRES_MINUTES`, `REFRESH_TOKEN_EXPIRES_MINUTES`
-- `REFRESH_COOKIE_NAME`, `REFRESH_COOKIE_PATH`, `COOKIE_SECURE`, `COOKIE_SAMESITE`
-- `DEFAULT_TOKEN_SCOPES` — space separated scopes granted at login
-- `DEMO_USERNAME`, `DEMO_PASSWORD` (or `DEMO_PASSWORD_HASH` for sha256 hash)
-- `ALLOW_CUSTOM_ITEMS` — whether unknown product codes are accepted when payload matches master data
-- `IDENTIFIER_HASH_SECRET` — salt for hashing device / cashier identifiers
+- `DATABASE_URL` — SQLite by default (`sqlite+pysqlite:///./posapp.db`)
+- `CORS_ORIGINS` — comma separated list of allowed frontends
+- `CLERK_CODE` / `STORE_CODE` / `POS_ID` — 固定識別子（仕様では 9999999999 / 30 / 90）
+- `TAX_PERCENT` — 消費税率（デフォルト 10）
+- `TAX_CODE` — 明細の税区分コード（デフォルト `10`）
 
 ## Running
 
@@ -32,34 +37,62 @@ Key environment variables:
 uvicorn app.main:app --reload
 ```
 
-On startup the API creates tables and seeds the shared item master defined in `seed_items.py`.
+起動時にテーブルを作成し、`seed_items.py` の商品マスタを自動登録します。
 
-## Authentication Flow
+## API Outline
 
-- `POST /auth/login` — accepts `{ "username", "password" }`, returns a short-lived access token and sets an HTTP-only refresh token cookie.
-- `POST /auth/refresh` — rotates the refresh token and returns a new access token (requires the refresh cookie).
-- `POST /auth/logout` — clears the refresh token cookie.
+| Method & Path              | 説明                                            |
+| -------------------------- | ----------------------------------------------- |
+| `GET /healthz`             | 稼働確認 (`{"status": "ok"}`)                   |
+| `GET /api/products/{code}` | 商品コードからマスタを返却。存在しない場合は `null` |
+| `POST /api/purchase`       | 取引登録。サーバー側で税抜・税額・税込を再計算 |
 
-The frontend stores the access token in memory only and sends it via `Authorization: Bearer` headers. Refresh tokens never leave the HTTP-only cookie.
+`POST /api/purchase` へのリクエストは下記のような形式です：
 
-## Protected Endpoints
+```json
+{
+  "lines": [
+    { "code": "4901234567890", "qty": 2 },
+    { "code": "4906789012345", "qty": 1 }
+  ]
+}
+```
 
-- `GET /items`, `GET /items/{code}` — require `items:read` scope
-- `POST /sales`, `GET /sales*`, `DELETE /sales/{id}` — require appropriate `sales:*` scopes
-- All `/sales` submissions are re-calculated server side (tax-out, tax, tax-in) and persist with hashed device/cashier identifiers.
+レスポンス例：
 
-## Security Features
+```json
+{
+  "transaction_id": "8c9c7e35-0de9-4de3-8654-a2d4f8a4d4ad",
+  "created_at": "2025-10-10T09:30:15.123456+00:00",
+  "ttl_amt_ex_tax": 36000,
+  "tax_amt": 3600,
+  "total_amt": 39600,
+  "clerk_cd": "9999999999",
+  "store_cd": "30",
+  "pos_id": "90",
+  "lines": [
+    {
+      "code": "4901234567890",
+      "name": "・・・",
+      "unit_price": 18000,
+      "qty": 2,
+      "line_total": 36000,
+      "tax_cd": "10"
+    }
+  ]
+}
+```
 
-- CORS locked to configured origins, credentials enabled
-- Sliding-window rate limiting for authentication and sales endpoints
-- Access tokens (default 10 minutes) + refresh tokens (default 3 days) with rotation
-- UUID-based sale identifiers (unguessable)
-- Input validation for EAN-13 product codes, quantities, and prices
-- Optional hashing of device/cashier identifiers prior to persistence
-- Structured audit logging for sale creation
-- HTTPS/TLS required in production (ensure reverse proxy terminates TLS)
-- No API base URL is logged or exposed in generated responses
+## Testing
 
-## Response & Error Format
+Basic HTTP smoke tests are located under `backend/tests/test_api.py`. They use the in-memory SQLite database (`test_posapp.db`) and cover:
 
-Errors are returned as `{"detail": "..."}` with sanitized messages. Frontend should map generic user-facing messages without leaking backend context.
+- プロダクト検索の成否
+- 取引登録時の税込・税抜計算
+- 登録レコード件数の検証
+
+Run them with:
+
+```bash
+pytest backend/tests/test_api.py
+```

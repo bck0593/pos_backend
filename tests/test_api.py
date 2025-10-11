@@ -1,8 +1,8 @@
 import os
 import sys
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -10,135 +10,112 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-os.environ.setdefault('DATABASE_URL', 'sqlite:///./test_posapp.db')
-os.environ.setdefault('CORS_ORIGINS', 'http://testserver')
-os.environ.setdefault('JWT_SECRET', 'test-secret')
-os.environ.setdefault('ALLOW_CUSTOM_ITEMS', 'false')
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_posapp.db")
+os.environ.setdefault("CORS_ORIGINS", "http://testserver")
 
 from app.database import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Sale  # noqa: E402
+from app.models import Product, Transaction  # noqa: E402
 
-TEST_DB_PATH = Path('test_posapp.db')
-
-
-def _login_headers(client: TestClient) -> dict[str, str]:
-    response = client.post(
-        '/auth/login',
-        json={'username': 'demo', 'password': 'demo123'},
-    )
-    assert response.status_code == 200
-    token = response.json()['access_token']
-    return {'Authorization': f'Bearer {token}'}
+TEST_DB_PATH = Path("test_posapp.db")
 
 
-@pytest.fixture(autouse=True)
-def clean_db():
-    engine.dispose()
-    if TEST_DB_PATH.exists():
-        TEST_DB_PATH.unlink()
-    yield
+def setup_module() -> None:
     engine.dispose()
     if TEST_DB_PATH.exists():
         TEST_DB_PATH.unlink()
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as test_client:
-        yield test_client
+def teardown_module() -> None:
+    engine.dispose()
+    if TEST_DB_PATH.exists():
+        TEST_DB_PATH.unlink()
 
 
-def test_healthz(client: TestClient) -> None:
-    response = client.get('/healthz')
-    assert response.status_code == 200
-    assert response.json() == {'status': 'ok'}
+def yen_round(value: int | float | Decimal) -> int:
+    if isinstance(value, Decimal):
+        decimal_value = value
+    elif isinstance(value, int):
+        decimal_value = Decimal(value)
+    else:
+        decimal_value = Decimal(str(value))
+    return int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
-def test_get_item_success_and_not_found(client: TestClient) -> None:
-    headers = _login_headers(client)
-
-    ok_response = client.get('/items/4901234567890', headers=headers)
-    assert ok_response.status_code == 200
-    assert ok_response.json()['code'] == '4901234567890'
-
-    missing_response = client.get('/items/0000000000001', headers=headers)
-    assert missing_response.status_code == 404
+def test_healthz() -> None:
+    with TestClient(app) as client:
+        response = client.get("/healthz")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
 
 
-def test_post_sale_persists_and_is_retrievable(client: TestClient) -> None:
-    headers = _login_headers(client)
+def test_product_lookup() -> None:
+    with TestClient(app) as client:
+        product_response = client.get("/api/products/4901234567890")
+        assert product_response.status_code == 200
+        product_json = product_response.json()
+        assert product_json["code"] == "4901234567890"
 
-    items_response = client.get('/items', headers=headers)
-    assert items_response.status_code == 200
-    items = items_response.json()['items']
-    assert len(items) >= 2
-    first, second = items[0], items[1]
-
-    sale_payload = {
-        'lines': [
-            {
-                'code': first['code'],
-                'name': first['name'],
-                'unit_price': first['unit_price'],
-                'qty': 2,
-            },
-            {
-                'code': second['code'],
-                'name': second['name'],
-                'unit_price': second['unit_price'],
-                'qty': 1,
-            },
-        ],
-    }
-    tax_out = first['unit_price'] * 2 + second['unit_price']
-    tax = round(tax_out * 0.1)
-    tax_in = tax_out + tax
-    sale_payload.update({'tax_out': tax_out, 'tax': tax, 'tax_in': tax_in})
-
-    create_response = client.post('/sales', json=sale_payload, headers=headers)
-    assert create_response.status_code == 200
-    created = create_response.json()
-    assert created['tax_out'] == tax_out
-    assert created['tax'] == tax
-    assert created['tax_in'] == tax_in
-    assert len(created['lines']) == 2
-
-    sale_id = created['id']
-    get_response = client.get(f'/sales/{sale_id}', headers=headers)
-    assert get_response.status_code == 200
-    fetched = get_response.json()
-    assert fetched['id'] == sale_id
-    assert fetched['tax_in'] == tax_in
-
-    with SessionLocal() as session:
-        db_sale = session.get(Sale, sale_id)
-        assert db_sale is not None
-        assert len(db_sale.lines) == 2
+        missing_response = client.get("/api/products/0000000000000")
+        assert missing_response.status_code == 200
+        assert missing_response.json() is None
 
 
-def test_transaction_rolls_back_on_invalid_item(client: TestClient) -> None:
-    headers = _login_headers(client)
-    invalid_payload = {
-        'lines': [
-            {
-                'code': '9999999999999',
-                'name': 'Fake Item',
-                'unit_price': 100,
-                'qty': 1,
-            }
-        ],
-        'tax_out': 100,
-        'tax': 10,
-        'tax_in': 110,
-    }
+def test_purchase_aggregates_lines_and_persists_totals() -> None:
+    with TestClient(app) as client:
+        with SessionLocal() as session:
+            if session.get(Product, "1234567890128") is None:
+                session.add(
+                    Product(
+                        code="1234567890128",
+                        name="テスト商品",
+                        unit_price=123,
+                    )
+                )
+                session.commit()
 
-    with SessionLocal() as session:
-        existing_sales = session.scalar(select(func.count(Sale.id))) or 0
+        payload = {
+            "lines": [
+                {"code": "4901234567890", "qty": 2},
+                {"code": "4901234567890", "qty": 3},
+                {"code": "4969757165713", "qty": 4},
+                {"code": "1234567890128", "qty": 3},
+            ]
+        }
+        response = client.post("/api/purchase", json=payload)
+        assert response.status_code == 201
+        body = response.json()
+        assert body["transaction_id"]
+        assert len(body["lines"]) == 3
 
-    response = client.post('/sales', json=invalid_payload, headers=headers)
-    assert response.status_code == 400
+        expected_ex_tax = 28500 * 5 + 200 * 4 + 123 * 3
+        expected_tax = yen_round(Decimal(expected_ex_tax) * Decimal("0.10"))
+        expected_total = expected_ex_tax + expected_tax
 
-    with SessionLocal() as session:
-        post_sales = session.scalar(select(func.count(Sale.id))) or 0
-    assert post_sales == existing_sales
+        assert body["ttl_amt_ex_tax"] == expected_ex_tax
+        assert body["tax_amt"] == expected_tax
+        assert body["total_amt"] == expected_total
+
+        quantities = {line["code"]: line["qty"] for line in body["lines"]}
+        assert quantities["4901234567890"] == 5
+        assert quantities["4969757165713"] == 4
+        assert quantities["1234567890128"] == 3
+
+        with SessionLocal() as session:
+            count = session.scalar(select(func.count(Transaction.id))) or 0
+            assert count == 1
+            transaction = session.execute(
+                select(Transaction).order_by(Transaction.created_at.desc())
+            ).scalars().first()
+            assert transaction is not None
+            assert transaction.ttl_amt_ex_tax == expected_ex_tax
+            assert transaction.tax_amt == expected_tax
+            assert transaction.total_amt == expected_total
+            assert transaction.clerk_cd == "9999999999"
+            assert transaction.store_cd == "30"
+            assert transaction.pos_id == "90"
+            detail_quantities = {detail.product_code: detail.quantity for detail in transaction.details}
+            assert detail_quantities["4901234567890"] == 5
+            assert detail_quantities["4969757165713"] == 4
+            assert detail_quantities["1234567890128"] == 3
+            assert all(detail.tax_cd == "10" for detail in transaction.details)
