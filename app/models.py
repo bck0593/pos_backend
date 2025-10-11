@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func
@@ -7,44 +7,45 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
-class Item(Base):
-    __tablename__ = "items"
+class Product(Base):
+    __tablename__ = "products"
 
-    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    code: Mapped[str] = mapped_column(String(13), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
-class Sale(Base):
-    __tablename__ = "sales"
-    __table_args__ = (Index("ix_sales_created_at", "created_at"),)
+class Transaction(Base):
+    __tablename__ = "transactions"
+    __table_args__ = (Index("ix_transactions_created_at", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    tax_out: Mapped[int] = mapped_column(Integer, nullable=False)
-    tax: Mapped[int] = mapped_column(Integer, nullable=False)
-    tax_in: Mapped[int] = mapped_column(Integer, nullable=False)
-    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
-    device_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    cashier_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ttl_amt_ex_tax: Mapped[int] = mapped_column(Integer, nullable=False)
+    tax_amt: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_amt: Mapped[int] = mapped_column(Integer, nullable=False)
+    clerk_cd: Mapped[str] = mapped_column(String(16), nullable=False)
+    store_cd: Mapped[str] = mapped_column(String(16), nullable=False)
+    pos_id: Mapped[str] = mapped_column(String(16), nullable=False)
 
-    lines: Mapped[list["SaleLine"]] = relationship(
-        back_populates="sale",
+    details: Mapped[list["TransactionDetail"]] = relationship(
+        back_populates="transaction",
         cascade="all, delete-orphan",
-        order_by="SaleLine.id",
+        order_by="TransactionDetail.id",
     )
 
 
-class SaleLine(Base):
-    __tablename__ = "sale_lines"
-    __table_args__ = (Index("ix_sale_lines_sale_id", "sale_id"),)
+class TransactionDetail(Base):
+    __tablename__ = "transaction_details"
+    __table_args__ = (Index("ix_transaction_details_transaction_id", "transaction_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    sale_id: Mapped[str] = mapped_column(String(36), ForeignKey("sales.id", ondelete="CASCADE"))
-    code: Mapped[str] = mapped_column(String(32), nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    transaction_id: Mapped[str] = mapped_column(String(36), ForeignKey("transactions.id", ondelete="CASCADE"))
+    product_code: Mapped[str] = mapped_column(String(13), nullable=False)
+    product_name: Mapped[str] = mapped_column(String(255), nullable=False)
     unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
-    qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     line_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    tax_cd: Mapped[str] = mapped_column(String(2), nullable=False, default="10")
 
-    sale: Mapped[Sale] = relationship(back_populates="lines")
+    transaction: Mapped[Transaction] = relationship(back_populates="details")
