@@ -42,11 +42,11 @@ def yen_round(value: int | float | Decimal) -> int:
     return int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
-def test_healthz() -> None:
+def test_health() -> None:
     with TestClient(app) as client:
-        response = client.get("/healthz")
+        response = client.get("/health")
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+        assert response.json() == {"ok": True}
 
 
 def test_product_lookup() -> None:
@@ -57,8 +57,8 @@ def test_product_lookup() -> None:
         assert product_json["code"] == "4901234567890"
 
         missing_response = client.get("/api/products/0000000000000")
-        assert missing_response.status_code == 200
-        assert missing_response.json() is None
+        assert missing_response.status_code == 404
+        assert missing_response.json()["detail"] == "Product not found"
 
 
 def test_purchase_aggregates_lines_and_persists_totals() -> None:
@@ -82,24 +82,15 @@ def test_purchase_aggregates_lines_and_persists_totals() -> None:
                 {"code": "1234567890128", "qty": 3},
             ]
         }
-        response = client.post("/api/purchase", json=payload)
+        response = client.post("/api/purchases", json=payload)
         assert response.status_code == 201
         body = response.json()
-        assert body["transaction_id"]
-        assert len(body["lines"]) == 3
 
         expected_ex_tax = 28500 * 5 + 200 * 4 + 123 * 3
         expected_tax = yen_round(Decimal(expected_ex_tax) * Decimal("0.10"))
         expected_total = expected_ex_tax + expected_tax
 
-        assert body["ttl_amt_ex_tax"] == expected_ex_tax
-        assert body["tax_amt"] == expected_tax
-        assert body["total_amt"] == expected_total
-
-        quantities = {line["code"]: line["qty"] for line in body["lines"]}
-        assert quantities["4901234567890"] == 5
-        assert quantities["4969757165713"] == 4
-        assert quantities["1234567890128"] == 3
+        assert body == {"total_amt": expected_total}
 
         with SessionLocal() as session:
             count = session.scalar(select(func.count(Transaction.id))) or 0

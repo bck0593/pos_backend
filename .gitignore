@@ -8,3 +8,4 @@ certs/
 .env
 posapp.db
 *.sqlite3
+data/

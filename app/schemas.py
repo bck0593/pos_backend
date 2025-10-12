@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import List
 
 from pydantic import BaseModel, conint, constr, field_validator
@@ -23,18 +22,6 @@ class PurchaseLineIn(BaseModel):
         extra = "forbid"
 
 
-class PurchaseLineOut(BaseModel):
-    code: EAN13
-    name: constr(min_length=1, max_length=255)
-    unit_price: conint(ge=0)
-    qty: conint(ge=1, le=999)
-    line_total: conint(ge=0)
-    tax_cd: constr(min_length=2, max_length=2)
-
-    class Config:
-        extra = "forbid"
-
-
 class PurchaseIn(BaseModel):
     lines: List[PurchaseLineIn]
 
@@ -49,23 +36,15 @@ class PurchaseIn(BaseModel):
         extra = "forbid"
 
 
-class PurchaseOut(BaseModel):
-    transaction_id: str
-    created_at: datetime
-    ttl_amt_ex_tax: int
-    tax_amt: int
-    total_amt: int
-    clerk_cd: str
-    store_cd: str
-    pos_id: str
-    lines: List[PurchaseLineOut]
+class PurchaseResult(BaseModel):
+    total_amt: conint(ge=0)
 
     class Config:
         extra = "forbid"
 
 
 class HealthOut(BaseModel):
-    status: str
+    ok: bool
 
     class Config:
         extra = "forbid"

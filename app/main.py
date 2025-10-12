@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .database import Base, engine, get_db
 from .models import Product, Transaction, TransactionDetail
-from .schemas import HealthOut, ProductOut, PurchaseIn, PurchaseLineOut, PurchaseOut
+from .schemas import HealthOut, ProductOut, PurchaseIn, PurchaseResult
 from .seed_items import seed_items
 
 load_dotenv()
@@ -19,14 +19,14 @@ load_dotenv()
 logger = logging.getLogger("pos.lv3")
 logging.basicConfig(level=logging.INFO)
 
-ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
-    if origin.strip()
-]
-
-if not ALLOWED_ORIGINS:
-    ALLOWED_ORIGINS = ["http://localhost:3000"]
+# Allow all origins during initial verification; override via CORS_ORIGINS env variable when hardening.
+raw_cors_origins = os.getenv("CORS_ORIGINS")
+ALLOWED_ORIGINS = (
+    [origin.strip() for origin in raw_cors_origins.split(",") if origin.strip()]
+    if raw_cors_origins
+    else ["*"]
+)
+ALLOW_CREDENTIALS = "*" not in ALLOWED_ORIGINS
 
 CLERK_CODE = os.getenv("CLERK_CODE", "9999999999")
 STORE_CODE = os.getenv("STORE_CODE", "30")
@@ -39,9 +39,9 @@ app = FastAPI(title="Tech0 POS Lv3 API", version="1.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_credentials=ALLOW_CREDENTIALS,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -63,21 +63,21 @@ def yen_round(value: Decimal | int | float) -> int:
     return int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
-@app.get("/healthz", response_model=HealthOut)
+@app.get("/health", response_model=HealthOut)
 def health() -> HealthOut:
-    return HealthOut(status="ok")
+    return HealthOut(ok=True)
 
 
-@app.get("/api/products/{code}", response_model=ProductOut | None)
-def get_product(code: str, db: Session = Depends(get_db)) -> ProductOut | None:
+@app.get("/api/products/{code}", response_model=ProductOut)
+def get_product(code: str, db: Session = Depends(get_db)) -> ProductOut:
     product = db.get(Product, code)
     if not product:
-        return None
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
     return ProductOut(code=product.code, name=product.name, unit_price=product.unit_price)
 
 
-@app.post("/api/purchase", response_model=PurchaseOut, status_code=status.HTTP_201_CREATED)
-def create_purchase(payload: PurchaseIn, db: Session = Depends(get_db)) -> PurchaseOut:
+@app.post("/api/purchases", response_model=PurchaseResult, status_code=status.HTTP_201_CREATED)
+def create_purchase(payload: PurchaseIn, db: Session = Depends(get_db)) -> PurchaseResult:
     aggregated: Dict[str, int] = {}
     ordered_codes: List[str] = []
     for line in payload.lines:
@@ -133,31 +133,10 @@ def create_purchase(payload: PurchaseIn, db: Session = Depends(get_db)) -> Purch
     db.commit()
     db.refresh(transaction)
 
-    response = PurchaseOut(
-        transaction_id=transaction.id,
-        created_at=transaction.created_at,
-        ttl_amt_ex_tax=transaction.ttl_amt_ex_tax,
-        tax_amt=transaction.tax_amt,
-        total_amt=transaction.total_amt,
-        clerk_cd=transaction.clerk_cd,
-        store_cd=transaction.store_cd,
-        pos_id=transaction.pos_id,
-        lines=[
-            PurchaseLineOut(
-                code=detail.product_code,
-                name=detail.product_name,
-                unit_price=detail.unit_price,
-                qty=detail.quantity,
-                line_total=detail.line_total,
-                tax_cd=detail.tax_cd,
-            )
-            for detail in transaction.details
-        ],
-    )
     logger.info(
         "Recorded transaction %s lines=%d total_amt=%s",
         transaction.id,
         len(transaction.details),
         transaction.total_amt,
     )
-    return response
+    return PurchaseResult(total_amt=transaction.total_amt)
