@@ -1,4 +1,4 @@
-from typing import Iterable
+﻿from typing import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,7 +17,7 @@ ITEM_ROWS: Iterable[dict[str, object]] = (
     {"code": "4909012345678", "name": "\u30ab\u30c3\u30bf\u30fc\uff0f\u30aa\u30fc\u30d7\u30ca\u30fc \u30b9\u30c6\u30f3\u30ec\u30b9\u88fd \u3059\u3079\u308a\u6b62\u3081\u30b0\u30ea\u30c3\u30d7", "unit_price": 4200},
     {"code": "4910123456789", "name": "\u30a4\u30f3\u30af\u30dc\u30c8\u30eb TECH ONE \u30d6\u30e9\u30c3\u30af 50ml", "unit_price": 2800},
     {"code": "4911234567890", "name": "\u4e07\u5e74\u7b46\u30b1\u30fc\u30b9 1\u672c\u7528 \u672c\u9769\u30dc\u30c3\u30af\u30b9", "unit_price": 5600},
-    {"code": "4912345678901", "name": "\u30d6\u30c3\u30af\u30b9\u30bf\u30f3\u30c9 \u7af9\u88fd \u30a2\u30f3\u30c6\u30a3\u30fc\u30af\u8abf", "unit_price": 11200},
+    {"code": "4530966704651", "name": "\u30d6\u30c3\u30af\u30b9\u30bf\u30f3\u30c9 \u7af9\u88fd \u30a2\u30f3\u30c6\u30a3\u30fc\u30af\u8abf", "unit_price": 11200},
     {"code": "4969757165713", "name": "\u304a\u301c\u3044\u304a\u8336\uff08\u7dd1\u8336\uff09", "unit_price": 200},
 )
 
