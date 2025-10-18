@@ -18,7 +18,7 @@ ITEM_ROWS: Iterable[dict[str, object]] = (
     {"code": "4910123456789", "name": "\u30a4\u30f3\u30af\u30dc\u30c8\u30eb TECH ONE \u30d6\u30e9\u30c3\u30af 50ml", "unit_price": 2800},
     {"code": "4911234567890", "name": "\u4e07\u5e74\u7b46\u30b1\u30fc\u30b9 1\u672c\u7528 \u672c\u9769\u30dc\u30c3\u30af\u30b9", "unit_price": 5600},
     {"code": "4530966704651", "name": "\u30d6\u30c3\u30af\u30b9\u30bf\u30f3\u30c9 \u7af9\u88fd \u30a2\u30f3\u30c6\u30a3\u30fc\u30af\u8abf", "unit_price": 11200},
-    {"code": "4969757165713", "name": "\u304a\u301c\u3044\u304a\u8336\uff08\u7dd1\u8336\uff09", "unit_price": 200},
+    {"code": "4969757165713", "name": "\u3089\u304F\u304C\u304D\u3061\u3087\u3046", "unit_price": 200},
 )
 
 
